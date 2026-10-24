@@ -656,7 +656,8 @@ async function initApp() {
 
   if (elFps) elFps.textContent = '60';
 
-  renderer.setAnimationLoop((now) => {
+  const CAPTURE = URL_PARAMS.has('capture');
+  const tick = (now) => {
     const rawDt = (now - lastTime) * 0.001;
     lastTime = now;
     const dt = Math.min(Math.max(rawDt, 0.001), 0.05);
@@ -744,7 +745,16 @@ async function initApp() {
       const where = cameraSystem.getActivePreset().category === 'follow' ? activeEnt.position : cameraSystem.currentPos;
       hud.renderLocation(getLocationLabel(where.x, where.z), where);
     }
-  });
+  };
+  if (CAPTURE) {
+    // ?capture: frame-by-frame recording with a fixed time step (tools/capture)
+    let fakeNow = performance.now();
+    lastTime = fakeNow;
+    // __ldnTick(dt) renders one frame synchronously, so the caller can read the canvas in the same task;
+    // await __ldnGpuIdle() before the next one
+    window.__ldnTick = (dt = 1 / 30) => { fakeNow += dt * 1000; tick(fakeNow); };
+    window.__ldnGpuIdle = () => (renderer.backend.device ? renderer.backend.device.queue.onSubmittedWorkDone() : Promise.resolve());
+  } else renderer.setAnimationLoop(tick);
 }
 
 initApp();
