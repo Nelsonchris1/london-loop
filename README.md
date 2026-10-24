@@ -3,8 +3,11 @@
 A GTA-style playable London in the browser. Zone 1 is at true 1:1 scale, built from OpenStreetMap: Paddington to Tower Bridge, King's Cross to Vauxhall, and Battersea. It's a fork of mrdoob's [Slop New York](https://github.com/mrdoob/slop-newyork) (MIT), rebuilt for London on three.js r186 (WebGPURenderer + TSL, vendored in `vendor/three/`).
 
 ## Play
+**Online:** https://nelsonchris1.github.io/london-loop/ (Chrome, Edge or Safari 26+; the first load takes about 40 s).
+
+**Locally:**
 ```bash
-cd ~/Documents/london-loop
+git clone https://github.com/Nelsonchris1/london-loop.git && cd london-loop
 python3 -m http.server 8000
 ```
 Then open http://localhost:8000 in Chrome, Edge or Safari 26+ (WebGPU).
