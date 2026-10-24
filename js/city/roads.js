@@ -718,6 +718,7 @@ export function buildRoadEnds(geo, ctx, L, inR, inRegion, colliders, stats) {
     for (let k = 0; k < n; k++) {
       const o = -span / 2 + (span * k) / (n - 1);
       const x = cx + e.lx * o, z = cz + e.lz * o;
+      if (onOther(x, z, r, 0.5)) continue; // never stand a bollard in another road's traffic lane
       b.set('scol', ...BOLLARD, 0); post(b, x, z, 0.1, e.y - 0.02, e.y + 0.74);
       b.set('scol', ...BAND, 0); post(b, x, z, 0.102, e.y + 0.74, e.y + 0.8);
       b.set('scol', ...BOLLARD, 0); post(b, x, z, 0.1, e.y + 0.8, e.y + 0.95);

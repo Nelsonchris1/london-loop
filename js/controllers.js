@@ -443,6 +443,45 @@ class ThirdPersonControllerManager extends (THREE.EventDispatcher || Object) {
     return Math.max(0.3, wl + 1.0);
   }
 
+  /**
+   * The edge of the play area (roads keep going visually into the filler city): instead of a hard invisible wall,
+   * brake the part of the velocity heading out of the map so the vehicle rolls to a stop ~3 m before the edge, and
+   * tell the UI once per approach (EventDispatcher 'edge' with {x, z}). Velocity along the edge is untouched.
+   */
+  _edgeBrake(c, s2, c2) {
+    const b = this.bounds;
+    if (!b || !Number.isFinite(b.minX)) return;
+    const inset = 2, stopGap = 3, decel = 7;
+    let Vx = s2 * c.speed + c.vx, Vz = c2 * c.speed + c.vz;
+    const p = c.position;
+    const edges = [
+      [-1, 0, p.x - (b.minX + inset)], [1, 0, (b.maxX - inset) - p.x],
+      [0, -1, p.z - (b.minZ + inset)], [0, 1, (b.maxZ - inset) - p.z]
+    ];
+    let limited = false;
+    for (const [nx, nz, dist] of edges) {
+      if (dist > 60) continue;
+      const vn = Vx * nx + Vz * nz; // outward speed
+      if (vn <= 0) continue;
+      const vAllowed = Math.sqrt(2 * decel * Math.max(0, dist - stopGap));
+      if (vn > vAllowed) {
+        const cut = vn - vAllowed;
+        Vx -= nx * cut; Vz -= nz * cut;
+        limited = true;
+      }
+    }
+    if (!limited) return;
+    c.speed = Vx * s2 + Vz * c2;
+    const lat = Vx * c2 - Vz * s2;
+    c.vx = lat * c2;
+    c.vz = -lat * s2;
+    const now = performance.now();
+    if (!this._edgeToldAt || now - this._edgeToldAt > 4000) {
+      this._edgeToldAt = now;
+      this.dispatchEvent({ type: 'edge', x: p.x, z: p.z });
+    }
+  }
+
   _clampBounds(pos, mode) {
     const b = this.bounds;
     const m = mode === 'helicopter' ? 2000 : 0;
@@ -949,8 +988,22 @@ class ThirdPersonControllerManager extends (THREE.EventDispatcher || Object) {
       if (pos.x + extX > c.minX && pos.x - extX < c.maxX && pos.z + extZ > c.minZ && pos.z - extZ < c.maxZ) {
         let nx = 0;
         let nz = 0;
-        if (c.obb) {
-          const o = c.obb;
+        // Vehicles are oriented boxes: treat plain AABB colliders (pillar boxes, phone boxes, bollards) as boxes too,
+        // and also separate on the vehicle's own axes (full SAT). Testing only the vehicle's axis-aligned bounds made
+        // kerbside furniture "hit" a car on a diagonal street from over a metre away.
+        const cobb = c.obb || (carEntity ? {
+          cx: (c.minX + c.maxX) / 2, cz: (c.minZ + c.maxZ) / 2, hx: (c.maxX - c.minX) / 2, hz: (c.maxZ - c.minZ) / 2, cs: 1, sn: 0
+        } : null);
+        if (carEntity) {
+          const o = cobb;
+          const ddx = o.cx - pos.x, ddz = o.cz - pos.z;
+          // box axes in world: x = (cs, -sn), z = (sn, cs); vehicle forward f = (sinH, cosH), right r = (cosH, -sinH)
+          const pf = o.hx * Math.abs(o.cs * sinH - o.sn * cosH) + o.hz * Math.abs(o.sn * sinH + o.cs * cosH);
+          const pr = o.hx * Math.abs(o.cs * cosH + o.sn * sinH) + o.hz * Math.abs(o.sn * cosH - o.cs * sinH);
+          if (Math.abs(ddx * sinH + ddz * cosH) >= hz + pf || Math.abs(ddx * cosH - ddz * sinH) >= hx + pr) continue;
+        }
+        if (cobb) {
+          const o = cobb;
           const dx = pos.x - o.cx;
           const dz = pos.z - o.cz;
           const lx = dx * o.cs - dz * o.sn;
@@ -1280,6 +1333,8 @@ class ThirdPersonControllerManager extends (THREE.EventDispatcher || Object) {
     c.speed = Vx * s2 + Vz * c2;
     c.vx = lat * c2;
     c.vz = -lat * s2;
+
+    this._edgeBrake(c, s2, c2);
 
     const prevX = c.position.x, prevZ = c.position.z;
     c.position.x += (s2 * c.speed + c.vx) * dt;

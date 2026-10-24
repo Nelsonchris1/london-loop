@@ -288,6 +288,9 @@ function buildStreetDetails(scene, opts) {
     stats.beacons = bel.length;
 
     // ---- bus shelters, phone boxes, pillar boxes -------------------------------------------------------------------
+    // never on a carriageway: a pavement strip of one road can lie across another road at junctions, and furniture
+    // there was a solid obstacle in the traffic lane (small and dark at speed = "crashed into nothing")
+    const onRoad = (x, z, pad = 0.5) => !!(ctx.carriageIndex && ctx.carriageIndex.onCarriageway(x, z, null, pad));
     const shelters = [], k6 = [], pillars = [];
     const BS = geo.busStops;
     for (let i = 0; i < BS.length; i += 2) {
@@ -303,6 +306,7 @@ function buildStreetDetails(scene, opts) {
       const px = hit.x + lx * sd * off, pz = hit.z + lz * sd * off;
       const y = rd.sidewalks.pavementAt(px, pz);
       if (y === null) continue; // no pavement there
+      if (onRoad(px, pz, 0.6) || onRoad(px + ux * 2.1, pz + uz * 2.1, 0.6) || onRoad(px - ux * 2.1, pz - uz * 2.1, 0.6)) continue;
       // shelter faces the road: local +z toward the road = -sd * left
       const fx = -lx * sd, fz = -lz * sd;
       const big = r.kind === 'trunk' || r.kind === 'primary' || r.kind === 'secondary';
@@ -315,7 +319,7 @@ function buildStreetDetails(scene, opts) {
       if (h > 0.82) {
         const qx = px + ux * 4.2, qz = pz + uz * 4.2;
         const qy = rd.sidewalks.pavementAt(qx, qz);
-        if (qy !== null) {
+        if (qy !== null && !onRoad(qx, qz, 0.7)) {
           k6.push({ x: qx, y: qy, z: qz, yaw: yawTo(fx, fz) });
           colliders.push({ minX: qx - 0.55, maxX: qx + 0.55, minZ: qz - 0.55, maxZ: qz + 0.55, maxY: qy + 2.8 });
           fp(qx, qz, 0.6, 'phonebox');
@@ -332,7 +336,7 @@ function buildStreetDetails(scene, opts) {
       for (const a of [0, 1.15]) {
         const x = hit.x + lx * sd * (hit.road.w / 2 + 2.2) + hit.dx * a, z = hit.z + lz * sd * (hit.road.w / 2 + 2.2) + hit.dz * a;
         const y = rd.sidewalks.pavementAt(x, z);
-        if (y === null) break;
+        if (y === null || onRoad(x, z, 0.7)) break;
         k6.push({ x, y, z, yaw: yawTo(-lx * sd, -lz * sd) });
         colliders.push({ minX: x - 0.55, maxX: x + 0.55, minZ: z - 0.55, maxZ: z + 0.55, maxY: y + 2.8 });
         fp(x, z, 0.6, 'phonebox');
@@ -347,7 +351,7 @@ function buildStreetDetails(scene, opts) {
       const lx = hit.dz, lz = -hit.dx;
       const x = nd.x + hit.dx * (nd.hw + 5) + lx * (r.w / 2 + 0.6), z = nd.z + hit.dz * (nd.hw + 5) + lz * (r.w / 2 + 0.6);
       const y = rd.sidewalks.pavementAt(x, z);
-      if (y === null) continue;
+      if (y === null || onRoad(x, z, 0.5)) continue;
       pillars.push({ x, y, z, yaw: yawTo(-lx, -lz) });
       colliders.push({ minX: x - 0.33, maxX: x + 0.33, minZ: z - 0.33, maxZ: z + 0.33, maxY: y + 1.5 });
       fp(x, z, 0.35, 'pillarbox');

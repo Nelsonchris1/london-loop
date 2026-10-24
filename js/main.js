@@ -7,6 +7,8 @@ import { GEO } from './ldn-geodata.js';
 import { WORLD, getLocationLabel, isTypingInField, TELEPORT_LOCATIONS } from './london-config.js';
 import { cityUniforms } from './tsl-materials.js';
 import { buildLondonCity } from './london-city.js';
+import { buildEdgeBarriers } from './city/edge-barriers.js';
+import { WORLD_BOUNDS } from './geo-frame.js';
 import { buildLondonLandmarks } from './london-landmarks.js';
 import { buildLondonRoadNetwork } from './road-network.js';
 import { createTrafficSystem } from './traffic.js';
@@ -94,6 +96,7 @@ async function initApp() {
   const city = buildLondonCity(scene, { geo: GEO, world: WORLD, landmarkZones: landmarks.zones, onProgress: (label) => status(`Building London: ${label}...`) });
   markInit('city');
   const allColliders = [...landmarks.colliders, ...city.colliders];
+  const edgeBarriers = buildEdgeBarriers(scene, { geo: GEO, world: WORLD, bounds: WORLD_BOUNDS });
 
   status('Timing the traffic lights & routing the 24 to Pimlico...');
   await paint();
@@ -109,6 +112,24 @@ async function initApp() {
 
   const controllerManager = new ThirdPersonControllerManager(scene, allColliders, { world: WORLD, mode: 'car' });
   if (controllerManager.setSurfaceHeight && city.surfaceHeight) controllerManager.setSurfaceHeight(city.surfaceHeight); // kerbs
+  // edge of the map: the controller brakes the car smoothly; say why
+  const edgeToast = document.createElement('div');
+  edgeToast.className = 'edge-toast';
+  edgeToast.innerHTML = '<b>Edge of the map</b><span>London Loop ends here. Turn around, or press M to jump somewhere else.</span>';
+  document.body.appendChild(edgeToast);
+  const edgeStyle = document.createElement('style');
+  edgeStyle.textContent = `.edge-toast{position:fixed;left:50%;top:96px;transform:translate(-50%,-8px);z-index:45;display:flex;flex-direction:column;gap:2px;align-items:center;
+    padding:10px 16px;border-radius:14px;background:rgba(16,17,20,.86);border:1px solid rgba(255,255,255,.1);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+    color:#f6f5f2;font:500 13px/1.35 var(--font-sans,Inter,system-ui,sans-serif);opacity:0;pointer-events:none;transition:opacity .25s,transform .25s}
+    .edge-toast b{font-weight:700;color:#ffb020;letter-spacing:.02em}.edge-toast.show{opacity:1;transform:translate(-50%,0)}
+    body.hud-minimized .edge-toast{display:none}`;
+  document.head.appendChild(edgeStyle);
+  let edgeTimer = 0;
+  controllerManager.addEventListener('edge', () => {
+    edgeToast.classList.add('show');
+    clearTimeout(edgeTimer);
+    edgeTimer = setTimeout(() => edgeToast.classList.remove('show'), 3500);
+  });
   onTrafficHit = (e) => { if (controllerManager._emitCollision) controllerManager._emitCollision(controllerManager.getActiveEntity(), e.impulse, 'traffic'); };
   const cameraSystem = new CameraSystem(renderer.domElement, controllerManager);
   const touchControls = new TouchControls(controllerManager);
@@ -659,6 +680,7 @@ async function initApp() {
     audio.update(dt, cameraSystem.camera);
     city.update(dt, cameraSystem.camera);
     landmarks.update(dt);
+    edgeBarriers.update(elapsed, VEHICLE_UNIFORMS.night.value);
     lightingSystem.update(cameraSystem.currentPos);
     mapSystem.update();
     if (warmedUp) updateSceneCulling(cameraSystem.camera.position); // the warm-up frame draws every chunk

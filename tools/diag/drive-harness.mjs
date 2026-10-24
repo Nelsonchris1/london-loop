@@ -60,7 +60,7 @@ function step(n, keys = {}) {
 }
 const mode = process.argv[2] || 'idle'; if (mode === 'nopush' || mode === 'why' || process.env.NOPUSH) traffic.setPlayerPush(false); if (process.env.NOTRAFFIC) traffic.update = () => {}; if (mode === 'notraffic') traffic.update = () => {};
 const spots = process.argv[3] ? process.argv[3].split(',') : Object.keys(TELEPORT_LOCATIONS);
-if (mode !== 'why' && mode !== 'which' && mode !== 'route' && mode !== 'idlemode' && mode !== 'feel' && mode !== 'busidle') for (const id of spots) {
+if (mode !== 'why' && mode !== 'which' && mode !== 'route' && mode !== 'idlemode' && mode !== 'feel' && mode !== 'busidle' && mode !== 'edge') for (const id of spots) {
   const L = TELEPORT_LOCATIONS[id];
   cm.setMode('car'); cm.teleportActiveTo(L.x, L.z, L.heading); collisions = 0;
   const e = cm.getActiveEntity(); const x0 = e.position.x, z0 = e.position.z;
@@ -150,6 +150,17 @@ if (mode === 'route') {
       if (Math.hypot(B.x - e.position.x, B.z - e.position.z) < 15 && k >= P.length / 2 - 2) { done = true; break; }
     }
     const maxStuck = maxStop;
+    if (process.env.HITS) {
+      const seen = new Set();
+      for (const ev of evs.slice(0, 400)) {
+        const k = Math.round(ev.x / 4) + ',' + Math.round(ev.z / 4); if (seen.has(k)) continue; seen.add(k);
+        const near = cm.nearColliders(ev.x, ev.z, 5).filter((c) => ev.x > c.minX - 3.5 && ev.x < c.maxX + 3.5 && ev.z > c.minZ - 3.5 && ev.z < c.maxZ + 3.5)
+          .map((c) => (c.maxX - c.minX).toFixed(1) + 'x' + (c.maxZ - c.minZ).toFixed(1) + 'h' + (c.maxY || 0).toFixed(1) + (c.obb ? 'o' : 'a'));
+        const rd = WORLD.nearestRoad(ev.x, ev.z, { kinds: 'drive', maxDist: 40 });
+        console.log('   hit', ev.kind, ev.x.toFixed(0) + ',' + ev.z.toFixed(0), 'i' + ev.impulse.toFixed(1), rd ? rd.road.name + ' d' + rd.dist.toFixed(1) + '/' + (rd.road.w / 2).toFixed(1) : '-', near.join(' '));
+        if (seen.size > 14) break;
+      }
+    }
     if (done) ok++;
     console.log(`${a} → ${b}: route ${r.length.toFixed(0)} m · ${done ? 'ARRIVED' : 'did not arrive'} in ${tSim.toFixed(0)} s (avg ${(dist / tSim * 2.237).toFixed(0)} mph) · collisions ${collisions} (${[...new Set(evs.map((v) => v.kind))].join(',')}) · longest stop ${maxStuck.toFixed(1)} s · longest wait behind traffic ${maxQueue.toFixed(0)} s`);
   }
@@ -407,4 +418,29 @@ if (mode === 'busidle') {
     console.log(`route ${r.ref} first stop ${s0.name}: bus parked 60 s with traffic, max displacement ${maxD.toFixed(2)} m, traffic ${traffic.vehicles}`);
   }
   console.log('worst displacement', worst.toFixed(2), 'm');
+}
+if (mode === 'edge') {
+  const { WORLD_BOUNDS } = await import('../../js/geo-frame.js');
+  let edgeEvents = 0; cm.addEventListener('edge', () => edgeEvents++);
+  const ww = GEO.roads.filter((q) => q.name === 'Westway');
+  let sx = 0, sz = 0, best = 1e9, ex = 0, ez = 0, bestE = 1e9;
+  for (const q of ww) for (let i = 0; i < q.pts.length; i += 2) { const x = q.pts[i], z = q.pts[i + 1];
+    if (Math.abs(x + 3600) < best) { best = Math.abs(x + 3600); sx = x; sz = z; }
+    if (Math.abs(x - (WORLD_BOUNDS.minX + 15)) < bestE) { bestE = Math.abs(x - (WORLD_BOUNDS.minX + 15)); ex = x; ez = z; } }
+  const rt = network.route({ x: sx, z: sz }, { x: ex, z: ez });
+  const P = rt.points; const n = P.length / 2;
+  console.log('route', rt.length.toFixed(0), 'm via', [...new Set(rt.steps.map((q) => q.name))].slice(0, 6).join(' > '));
+  cm.setMode('car'); cm.teleportActiveTo(P[0], P[1], Math.atan2(P[2] - P[0], P[3] - P[1]));
+  const e = cm.getActiveEntity(); collisions = 0; evs.length = 0;
+  let k = 1, vmax = 0, minEdge = 1e9, peakDecel = 0, last = 0;
+  for (let i = 0; i < 1800; i++) {
+    while (k < n - 1 && Math.hypot(P[2 * k] - e.position.x, P[2 * k + 1] - e.position.z) < 12) k++;
+    const want = Math.atan2(P[2 * k] - e.position.x, P[2 * k + 1] - e.position.z);
+    let d = want - e.heading; d = Math.atan2(Math.sin(d), Math.cos(d));
+    step(1, { forward: true, boost: true, left: d > 0.04, right: d < -0.04 });
+    vmax = Math.max(vmax, e.speed); peakDecel = Math.max(peakDecel, (last - e.speed) * 30); last = e.speed;
+    minEdge = Math.min(minEdge, e.position.x - WORLD_BOUNDS.minX);
+  }
+  console.log('collision points', evs.slice(0, 5).map((v) => v.x.toFixed(1) + ',' + v.z.toFixed(1) + ' i' + v.impulse.toFixed(1)).join('  '), 'end at', e.position.x.toFixed(1), e.position.z.toFixed(1), 'y', e.position.y.toFixed(2));
+  console.log(`Westway west to the edge: vmax ${(vmax * 2.237).toFixed(0)} mph, closest to edge ${minEdge.toFixed(1)} m, final speed ${e.speed.toFixed(2)} m/s, peak decel ${peakDecel.toFixed(1)} m/s², collisions ${collisions} (${[...new Set(evs.map((v) => v.kind))].join(',')}), edge events ${edgeEvents}`);
 }

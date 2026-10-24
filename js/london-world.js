@@ -278,7 +278,7 @@ export function createWorldQueries(GEO) {
 
   /** on (or right beside) a bridge road's deck? The river is mapped right up to the bridge ends, where the deck
    *  has ramped down to ~0, so a "water" cell there is still bridge, not river. */
-  const deckFilter = (r) => !!r.deck;
+  const deckFilter = (r) => !!r.deck || !!r.bridge; // raised decks, and bridges left at grade (e.g. the Westway over the Grand Union Canal)
   function onBridge(x, z, pad = 1.5) {
     // carriageways and footways separately: a narrow cycle track beside the carriageway mustn't hide it
     for (const kinds of ['drive', 'walk']) {
