@@ -1,0 +1,4 @@
+.DS_Store
+tools/data/osm_central.json
+tools/out/
+dist/
